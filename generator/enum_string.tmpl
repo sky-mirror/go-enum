@@ -27,6 +27,11 @@ func {{.enum.Name}}Names() []string {
 	copy(tmp, _{{.enum.Name}}Names)
 	return tmp
 }
+
+// Names invokes {{.enum.Name}}Names and returns the same value.
+func ({{.enum.Name}}) Names() []string {
+  return {{.enum.Name}}Names()
+}
 {{ end -}}
 
 
