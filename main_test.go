@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abice/go-enum/generator"
+	"github.com/sky-mirror/go-enum/generator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v2"

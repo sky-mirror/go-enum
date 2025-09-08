@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/abice/go-enum/generator"
 	"github.com/labstack/gommon/color"
+	"github.com/sky-mirror/go-enum/generator"
 	"github.com/urfave/cli/v2"
 )
 
