@@ -5,7 +5,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
+	"sync"
 
 	"github.com/abice/go-enum/generator"
 	"github.com/labstack/gommon/color"
@@ -13,21 +15,24 @@ import (
 )
 
 var (
-	version string
-	commit  string
-	date    string
-	builtBy string
+	versionOnce sync.Once
+	version     string
+	commit      string
+	date        string
+	builtBy     string
 )
 
 type rootT struct {
 	FileNames         cli.StringSlice
 	NoPrefix          bool
+	NoIota            bool
 	Lowercase         bool
 	NoCase            bool
 	Marshal           bool
 	SQL               bool
 	SQLInt            bool
 	Flag              bool
+	JsonPkg           string
 	Prefix            string
 	Names             bool
 	Values            bool
@@ -40,14 +45,44 @@ type rootT struct {
 	BuildTags         cli.StringSlice
 	MustParse         bool
 	ForceLower        bool
+	ForceUpper        bool
 	NoComments        bool
+	OutputSuffix      string
+}
+
+func initializeVersion() {
+	versionOnce.Do(func() {
+		if version != "" {
+			return
+		}
+		buildInfo, ok := debug.ReadBuildInfo()
+		if !ok {
+			return
+		}
+		builtBy = "go install"
+		version = buildInfo.Main.Version
+		for _, setting := range buildInfo.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				commit = setting.Value
+			case "vcs.time":
+				date = setting.Value
+			case "vcs.modified":
+				if setting.Value == "true" {
+					commit += "-modified"
+				}
+			}
+		}
+	})
 }
 
 func main() {
 	var argv rootT
 
+	initializeVersion()
+
 	clr := color.New()
-	out := func(format string, args ...interface{}) {
+	out := func(format string, args ...any) {
 		_, _ = fmt.Fprintf(clr.Output(), format, args...)
 	}
 
@@ -99,6 +134,11 @@ func main() {
 				Name:        "flag",
 				Usage:       "Adds golang flag functions.",
 				Destination: &argv.Flag,
+			},
+			&cli.StringFlag{
+				Name:        "jsonpkg",
+				Usage:       "Custom json package for imports instead encoding/json.",
+				Destination: &argv.JsonPkg,
 			},
 			&cli.StringFlag{
 				Name:        "prefix",
@@ -158,6 +198,11 @@ func main() {
 				Destination: &argv.ForceLower,
 			},
 			&cli.BoolFlag{
+				Name:        "forceupper",
+				Usage:       "Forces a camel cased comment to generate uppercased names.",
+				Destination: &argv.ForceUpper,
+			},
+			&cli.BoolFlag{
 				Name:        "nocomments",
 				Usage:       "Removes auto generated comments.  If you add your own comments, these will still be created.",
 				Destination: &argv.NoComments,
@@ -168,81 +213,73 @@ func main() {
 				Usage:       "Adds build tags to a generated enum file.",
 				Destination: &argv.BuildTags,
 			},
+			&cli.StringFlag{
+				Name:        "output-suffix",
+				Usage:       "Changes the default filename suffix of _enum to something else.  `.go` will be appended to the end of the string no matter what, so that `_test.go` cases can be accommodated ",
+				Destination: &argv.OutputSuffix,
+			},
+			&cli.BoolFlag{
+				Name:        "no-iota",
+				Usage:       "Disables the use of iota in generated enums.",
+				Destination: &argv.NoIota,
+			},
 		},
 		Action: func(ctx *cli.Context) error {
-			if err := generator.ParseAliases(argv.Aliases.Value()); err != nil {
+			aliases, err := generator.ParseAliases(argv.Aliases.Value())
+			if err != nil {
 				return err
 			}
 			for _, fileOption := range argv.FileNames.Value() {
 
-				g := generator.NewGenerator()
-				g.Version = version
-				g.Revision = commit
-				g.BuildDate = date
-				g.BuiltBy = builtBy
+				// Build configuration structure
+				jsonPkg := argv.JsonPkg
+				if jsonPkg == "" {
+					jsonPkg = "encoding/json"
+				}
 
-				g.WithBuildTags(argv.BuildTags.Value()...)
-
-				if argv.NoPrefix {
-					g.WithNoPrefix()
-				}
-				if argv.Lowercase {
-					g.WithLowercaseVariant()
-				}
-				if argv.NoCase {
-					g.WithCaseInsensitiveParse()
-				}
-				if argv.Marshal {
-					g.WithMarshal()
-				}
-				if argv.SQL {
-					g.WithSQLDriver()
-				}
-				if argv.SQLInt {
-					g.WithSQLInt()
-				}
-				if argv.Flag {
-					g.WithFlag()
-				}
-				if argv.Names {
-					g.WithNames()
-				}
-				if argv.Values {
-					g.WithValues()
-				}
-				if argv.LeaveSnakeCase {
-					g.WithoutSnakeToCamel()
-				}
-				if argv.Prefix != "" {
-					g.WithPrefix(argv.Prefix)
-				}
-				if argv.Ptr {
-					g.WithPtr()
-				}
-				if argv.SQLNullInt {
-					g.WithSQLNullInt()
-				}
-				if argv.SQLNullStr {
-					g.WithSQLNullStr()
-				}
-				if argv.MustParse {
-					g.WithMustParse()
-				}
-				if argv.ForceLower {
-					g.WithForceLower()
-				}
-				if argv.NoComments {
-					g.WithNoComments()
-				}
+				var templateFileNames []string
 				if templates := []string(argv.TemplateFileNames.Value()); len(templates) > 0 {
 					for _, t := range templates {
 						if fn, err := globFilenames(t); err != nil {
 							return err
 						} else {
-							g.WithTemplates(fn...)
+							templateFileNames = append(templateFileNames, fn...)
 						}
 					}
 				}
+
+				config := generator.GeneratorConfig{
+					NoPrefix:          argv.NoPrefix,
+					NoIota:            argv.NoIota,
+					LowercaseLookup:   argv.Lowercase || argv.NoCase,
+					CaseInsensitive:   argv.NoCase,
+					Marshal:           argv.Marshal,
+					SQL:               argv.SQL,
+					SQLInt:            argv.SQLInt,
+					Flag:              argv.Flag,
+					Names:             argv.Names,
+					Values:            argv.Values,
+					LeaveSnakeCase:    argv.LeaveSnakeCase,
+					JSONPkg:           jsonPkg,
+					Prefix:            argv.Prefix,
+					SQLNullInt:        argv.SQLNullInt,
+					SQLNullStr:        argv.SQLNullStr,
+					Ptr:               argv.Ptr,
+					MustParse:         argv.MustParse,
+					ForceLower:        argv.ForceLower,
+					ForceUpper:        argv.ForceUpper,
+					NoComments:        argv.NoComments,
+					BuildTags:         argv.BuildTags.Value(),
+					ReplacementNames:  aliases,
+					TemplateFileNames: templateFileNames,
+				}
+
+				// Create generator with configuration
+				g := generator.NewGeneratorWithConfig(config)
+				g.Version = version
+				g.Revision = commit
+				g.BuildDate = date
+				g.BuiltBy = builtBy
 
 				var filenames []string
 				if fn, err := globFilenames(fileOption); err != nil {
@@ -251,14 +288,20 @@ func main() {
 					filenames = fn
 				}
 
+				outputSuffix := `_enum`
+				if argv.OutputSuffix != "" {
+					outputSuffix = argv.OutputSuffix
+				}
+
 				for _, fileName := range filenames {
 					originalName := fileName
 
 					out("go-enum started. file: %s\n", color.Cyan(originalName))
 					fileName, _ = filepath.Abs(fileName)
-					outFilePath := fmt.Sprintf("%s_enum.go", strings.TrimSuffix(fileName, filepath.Ext(fileName)))
+
+					outFilePath := fmt.Sprintf("%s%s.go", strings.TrimSuffix(fileName, filepath.Ext(fileName)), outputSuffix)
 					if strings.HasSuffix(fileName, "_test.go") {
-						outFilePath = strings.Replace(outFilePath, "_test_enum.go", "_enum_test.go", 1)
+						outFilePath = strings.Replace(outFilePath, "_test"+outputSuffix+".go", outputSuffix+"_test.go", 1)
 					}
 
 					// Parse the file given in arguments

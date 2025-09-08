@@ -7,12 +7,15 @@ import (
 )
 
 // Stringify returns a string that is all of the enum value names concatenated without a separator
-func Stringify(e Enum, forceLower bool) (ret string, err error) {
+func Stringify(e Enum, forceLower, forceUpper bool) (ret string, err error) {
 	for _, val := range e.Values {
 		if val.Name != skipHolder {
 			next := val.RawName
 			if forceLower {
 				next = strings.ToLower(next)
+			}
+			if forceUpper {
+				next = strings.ToUpper(next)
 			}
 			ret = ret + next
 		}
@@ -122,5 +125,19 @@ func Offset(index int, enumType string, val EnumValue) (strResult string) {
 	} else {
 		// Signed
 		return strconv.FormatInt(val.ValueInt.(int64)-int64(index), 10)
+	}
+}
+
+// DirectValue returns the exact value of the enum, not adjusted for iota at all.
+func DirectValue(enumType string, val EnumValue) (strResult string) {
+	if enumType == "string" {
+		return strconv.Quote(val.ValueStr)
+	}
+	if strings.HasPrefix(enumType, "u") {
+		// Unsigned
+		return strconv.FormatUint(val.ValueInt.(uint64), 10)
+	} else {
+		// Signed
+		return strconv.FormatInt(val.ValueInt.(int64), 10)
 	}
 }

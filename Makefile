@@ -10,7 +10,7 @@ COVERAGEDIR= coverage
 SERVICE=local
 
 ifdef GITHUB_ACTIONS
-SERVICE=github-actions
+SERVICE=github
 endif
 
 DATE := $(shell date -u '+%FT%T%z')
@@ -49,8 +49,8 @@ fmt:
 	-$(GO) fmt ./...
 
 test: gen-test generate
-	$(GO) test -v -race -coverprofile=coverage.out ./...
-	$(GO) test -v -race --tags=example ./example
+	$(GO) test -v -race -shuffle on -coverprofile=coverage.out ./...
+	$(GO) test -v -race -shuffle on --tags=example ./example
 
 cover: gen-test test
 	$(GO) tool cover -html=coverage.out -o coverage.html
@@ -99,28 +99,26 @@ bin/goveralls: go.sum
 	$(call goinstall,github.com/mattn/goveralls)
 
 # snapshots: snapshots_1.17
-snapshots: snapshots_1.20
+snapshots: snapshots_1.24
 
 snapshots_%: clean
 	echo "##### updating snapshots for golang $* #####"
 	docker run -i -t -w /app -v $(shell pwd):/app --entrypoint /bin/sh golang:$* -c './update-snapshots.sh || true'
 
 .PHONY: ci
-# ci: docker_1.16
-# ci: docker_1.17
-ci: docker_1.18
-ci: docker_1.19
-ci: docker_1.20
+ci: docker_1.23
+ci: docker_1.24
 
 docker_%:
 	echo "##### testing golang $* #####"
 	docker run -i -t -w /app -v $(shell pwd):/app --entrypoint /bin/sh golang:$* -c 'make clean && make'
 
 .PHONY: pullimages
-pullimages: pullimage_1.17
-pullimages: pullimage_1.18
-pullimages: pullimage_1.19
-pullimages: pullimage_1.20
+pullimages: pullimage_1.23
+pullimages: pullimage_1.24
 
 pullimage_%:
 	docker pull golang:$*
+
+build_docker:
+	KO_DOCKER_REPO=abice/go-enum VERSION=$(GITHUB_REF) COMMIT=$(GITHUB_SHA) DATE=$(DATE) BUILT_BY=$(USER) ko build --bare --local
