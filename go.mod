@@ -1,4 +1,4 @@
-module github.com/SkyMirrorTech/go-enum
+module github.com/sky-mirror/go-enum
 
 go 1.20
 
